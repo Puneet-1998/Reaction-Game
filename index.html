@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -122,11 +122,29 @@
     text-shadow: 0 1px 6px rgba(0,0,0,0.5);
   }
 
+  /* Reaction time display - top right */
+  .overlay-time-box {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: none;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  .overlay-time-box.visible {
+    display: flex;
+  }
+
   .overlay-time {
     font-family: 'Outfit', sans-serif;
     font-weight: 800;
-    font-size: clamp(2.4rem, 8vw, 3.6rem);
+    font-size: clamp(1.8rem, 6vw, 2.6rem);
     text-shadow: 0 2px 16px rgba(0,0,0,0.5);
+    line-height: 1;
   }
 
   .overlay-time-unit {
@@ -140,8 +158,9 @@
   .state-idle    .overlay-label { color: var(--text); }
   .state-waiting .overlay-label { color: var(--waiting); }
   .state-ready   .overlay-label { color: var(--ready); }
-  .state-result  .overlay-time  { color: var(--result); }
   .state-false   .overlay-label { color: var(--error); }
+
+  .overlay-time-box .overlay-time { color: var(--result); }
 
   /* ── Controls ─────────────────────────────────────────────── */
   .controls {
@@ -377,6 +396,10 @@
 
   <!-- 3D Scene -->
   <div class="canvas-wrap" id="canvasWrap">
+    <div class="overlay-time-box" id="timeBox">
+      <div class="overlay-time" id="timeDisplay"></div>
+      <div class="rating-badge" id="ratingBadge"></div>
+    </div>
     <div class="canvas-overlay state-idle" id="overlay">
       <span class="overlay-label" id="overlayLabel">Click to Start</span>
       <span class="overlay-sub" id="overlaySub">or press Space</span>
@@ -421,8 +444,8 @@
     <summary>How to Play</summary>
     <ol>
       <li>Press <span class="key-hint">Start</span> or click the 3D scene to begin.</li>
-      <li>Watch the floating shapes — they will turn <strong style="color:var(--waiting)">amber</strong> while waiting.</li>
-      <li>When they flash <strong style="color:var(--ready)">green</strong> and expand, click or press <span class="key-hint">Space</span> as fast as you can!</li>
+      <li>Watch the shape — it will turn <strong style="color:var(--waiting)">amber</strong> while waiting.</li>
+      <li>When it flashes <strong style="color:var(--ready)">green</strong> and expands, click or press <span class="key-hint">Space</span> as fast as you can!</li>
       <li>If you click before the green signal, it counts as a <strong style="color:var(--error)">false start</strong>.</li>
       <li>Your reaction time is measured in milliseconds. Under 250ms is fast!</li>
     </ol>
@@ -475,6 +498,9 @@
   const statBest      = document.getElementById('statBest');
   const historyList   = document.getElementById('historyList');
   const btnClearHist  = document.getElementById('btnClearHistory');
+  const timeBox       = document.getElementById('timeBox');
+  const timeDisplay   = document.getElementById('timeDisplay');
+  const ratingBadge   = document.getElementById('ratingBadge');
 
   // ── Three.js Setup ─────────────────────────────────────────
   const scene = new THREE.Scene();
@@ -511,49 +537,16 @@
   pointLight.position.set(-3, 2, 3);
   scene.add(pointLight);
 
-  // ── Geometry Pool ──────────────────────────────────────────
-  const sharedMaterial = new THREE.MeshStandardMaterial({
-    color: COLORS.idle,
-    roughness: 0.35,
-    metalness: 0.6,
-  });
-
-  const geometries = [
-    new THREE.IcosahedronGeometry(0.65, 0),
-    new THREE.OctahedronGeometry(0.6, 0),
-    new THREE.TorusGeometry(0.45, 0.2, 16, 32),
-    new THREE.DodecahedronGeometry(0.55, 0),
-    new THREE.TetrahedronGeometry(0.6, 0),
-  ];
-
-  // Central main shape
-  const mainGeo = new THREE.IcosahedronGeometry(0.9, 1);
+  // ── Main Shape — Torus Knot ────────────────────────────────
+  const mainGeo = new THREE.TorusKnotGeometry(0.8, 0.28, 128, 32, 2, 3);
   const mainMat = new THREE.MeshStandardMaterial({
     color: COLORS.idle,
-    roughness: 0.25,
-    metalness: 0.7,
+    roughness: 0.2,
+    metalness: 0.8,
     wireframe: false,
   });
   const mainMesh = new THREE.Mesh(mainGeo, mainMat);
   scene.add(mainMesh);
-
-  // Orbiting shapes
-  const orbiters = [];
-  const ORBIT_COUNT = 5;
-
-  for (let i = 0; i < ORBIT_COUNT; i++) {
-    const geo = geometries[i % geometries.length];
-    const mat = sharedMaterial.clone();
-    const mesh = new THREE.Mesh(geo, mat);
-
-    const angle = (i / ORBIT_COUNT) * Math.PI * 2;
-    const radius = 2.2 + Math.random() * 0.5;
-    const yOffset = (Math.random() - 0.5) * 1.5;
-    const speed = 0.3 + Math.random() * 0.2;
-
-    orbiters.push({ mesh, angle, radius, yOffset, speed, baseScale: 0.5 + Math.random() * 0.2 });
-    scene.add(mesh);
-  }
 
   // Particle field (background stars)
   const particleCount = 120;
@@ -592,9 +585,10 @@
     const dt = clock.getDelta();
     const elapsed = clock.getElapsedTime();
 
-    // Main mesh rotation
-    mainMesh.rotation.x += dt * 0.4;
-    mainMesh.rotation.y += dt * 0.6;
+    // Main mesh rotation — gentle tumble
+    mainMesh.rotation.x += dt * 0.3;
+    mainMesh.rotation.y += dt * 0.5;
+    mainMesh.rotation.z += dt * 0.15;
 
     // Smooth color lerp
     mainMat.color.lerp(targetColor, dt * 5);
@@ -602,7 +596,7 @@
     currentEmissiveIntensity += (targetEmissiveIntensity - currentEmissiveIntensity) * dt * 5;
     mainMat.emissiveIntensity = currentEmissiveIntensity;
 
-    // Smooth scale lerp
+    // Smooth scale lerp with pulse
     const pulseMod = state === State.READY
       ? 1 + Math.sin(elapsed * 8) * 0.08
       : state === State.WAITING
@@ -613,23 +607,6 @@
       new THREE.Vector3(finalScale, finalScale, finalScale),
       dt * 6
     );
-
-    // Orbiters
-    for (const orb of orbiters) {
-      orb.angle += dt * orb.speed;
-      orb.mesh.position.x = Math.cos(orb.angle) * orb.radius;
-      orb.mesh.position.z = Math.sin(orb.angle) * orb.radius;
-      orb.mesh.position.y = orb.yOffset + Math.sin(elapsed * 0.8 + orb.angle) * 0.3;
-      orb.mesh.rotation.x += dt * 0.8;
-      orb.mesh.rotation.y += dt * 1.1;
-
-      const orbScale = orb.baseScale * (state === State.READY ? 1.3 : 1);
-      orb.mesh.scale.lerp(
-        new THREE.Vector3(orbScale, orbScale, orbScale),
-        dt * 4
-      );
-      orb.mesh.material.color.lerp(targetColor, dt * 3);
-    }
 
     // Particle drift
     particles.rotation.y += dt * 0.02;
@@ -693,42 +670,16 @@
 
       case State.RESULT: {
         const ms = data.ms;
-        overlayLabel.textContent = '';
-        overlaySub.style.display = '';
-
-        // Build result HTML
         const rating = getRating(ms);
-        overlayLabel.innerHTML = '';
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'overlay-time';
-        timeSpan.innerHTML = ms + '<span class="overlay-time-unit">ms</span>';
-        overlay.querySelector('.canvas-overlay') || null;
 
-        // Replace label with time display
+        // Show time in top-right box
+        timeDisplay.innerHTML = ms + '<span class="overlay-time-unit">ms</span>';
+        ratingBadge.textContent = rating.label;
+        ratingBadge.className = 'rating-badge ' + rating.cls;
+        timeBox.classList.add('visible');
+
+        // Center overlay just shows retry hint
         overlayLabel.style.display = 'none';
-        overlaySub.innerHTML = '';
-
-        // Insert time into overlay
-        let timeEl = overlay.querySelector('.overlay-time');
-        if (!timeEl) {
-          timeEl = document.createElement('div');
-          timeEl.className = 'overlay-time';
-          overlay.insertBefore(timeEl, overlayLabel);
-        }
-        timeEl.innerHTML = ms + '<span class="overlay-time-unit">ms</span>';
-        timeEl.style.display = '';
-
-        // Rating badge
-        let badgeEl = overlay.querySelector('.rating-badge');
-        if (!badgeEl) {
-          badgeEl = document.createElement('div');
-          badgeEl.className = 'rating-badge';
-          overlay.insertBefore(badgeEl, overlaySub);
-        }
-        badgeEl.textContent = rating.label;
-        badgeEl.className = 'rating-badge ' + rating.cls;
-        badgeEl.style.display = '';
-
         overlaySub.textContent = 'Click or press Space to try again';
         overlaySub.style.display = '';
 
@@ -752,18 +703,13 @@
         setSceneState(COLORS.error, 0.7);
         btnStart.textContent = 'Retry';
         btnStart.disabled = false;
-
-        // Hide time/badge if visible
         hideResultEls();
         break;
     }
   }
 
   function hideResultEls() {
-    const timeEl = overlay.querySelector('.overlay-time');
-    const badgeEl = overlay.querySelector('.rating-badge');
-    if (timeEl) timeEl.style.display = 'none';
-    if (badgeEl) badgeEl.style.display = 'none';
+    timeBox.classList.remove('visible');
     overlayLabel.style.display = '';
   }
 
