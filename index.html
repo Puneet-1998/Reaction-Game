@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reaction Timer — 3D Edition</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600;700;800&display=swap');
+
+  /* ── Reset & Base ─────────────────────────────────────────── */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:        #0F172A;
+    --surface:   #1E293B;
+    --surface-2: #273548;
+    --text:      #F1F5F9;
+    --text-sec:  #94A3B8;
+    --ready:     #10B981;
+    --waiting:   #F59E0B;
+    --result:    #3B82F6;
+    --error:     #EF4444;
+    --radius:    12px;
+  }
+
+  html { font-size: 16px; }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ───────────────────────────────────────────────── */
+  .app {
+    width: 100%;
+    max-width: 640px;
+    padding: 24px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  header {
+    text-align: center;
+    padding: 8px 0 4px;
+  }
+
+  header h1 {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: clamp(1.6rem, 5vw, 2.2rem);
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--result), var(--ready));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  header p {
+    color: var(--text-sec);
+    font-size: 0.875rem;
+    margin-top: 4px;
+  }
+
+  /* ── 3D Canvas Container ──────────────────────────────────── */
+  .canvas-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .canvas-wrap canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* Overlay text on top of the 3D scene */
+  .canvas-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 2;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .overlay-label {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: clamp(1.1rem, 4vw, 1.5rem);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+    transition: opacity 0.2s;
+  }
+
+  .overlay-sub {
+    font-size: 0.85rem;
+    color: var(--text-sec);
+    margin-top: 6px;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+  }
+
+  .overlay-time {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2.4rem, 8vw, 3.6rem);
+    text-shadow: 0 2px 16px rgba(0,0,0,0.5);
+  }
+
+  .overlay-time-unit {
+    font-size: 0.5em;
+    font-weight: 600;
+    opacity: 0.7;
+    margin-left: 2px;
+  }
+
+  /* State-based overlay colors */
+  .state-idle    .overlay-label { color: var(--text); }
+  .state-waiting .overlay-label { color: var(--waiting); }
+  .state-ready   .overlay-label { color: var(--ready); }
+  .state-result  .overlay-time  { color: var(--result); }
+  .state-false   .overlay-label { color: var(--error); }
+
+  /* ── Controls ─────────────────────────────────────────────── */
+  .controls {
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn {
+    flex: 1;
+    padding: 14px 16px;
+    border: none;
+    border-radius: var(--radius);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.15s, opacity 0.15s;
+    outline-offset: 3px;
+  }
+
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+  .btn-primary {
+    background: var(--result);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(59,130,246,0.35);
+  }
+  .btn-primary:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(59,130,246,0.5); }
+
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text-sec);
+    border: 1px solid var(--surface-2);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+
+  /* ── Stats Panel ──────────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    border-radius: var(--radius);
+    padding: 14px 12px;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1.4rem;
+    color: var(--text);
+    line-height: 1.2;
+  }
+
+  .stat-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-sec);
+    margin-top: 4px;
+  }
+
+  /* ── History ──────────────────────────────────────────────── */
+  .history-section {
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+
+  .history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .history-title {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  .history-clear {
+    background: none;
+    border: none;
+    color: var(--text-sec);
+    font-size: 0.78rem;
+    cursor: pointer;
+    font-family: 'Inter', system-ui, sans-serif;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .history-clear:hover { color: var(--text); background: var(--surface-2); }
+
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 180px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-2) transparent;
+  }
+
+  .history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    background: var(--bg);
+  }
+
+  .history-item-num { color: var(--text-sec); font-weight: 500; }
+  .history-item-time { font-weight: 600; color: var(--result); }
+  .history-item-best .history-item-time { color: var(--ready); }
+
+  .history-empty {
+    color: var(--text-sec);
+    font-size: 0.82rem;
+    text-align: center;
+    padding: 16px 0;
+  }
+
+  /* ── Instructions ─────────────────────────────────────────── */
+  .instructions {
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+
+  .instructions summary {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .instructions summary::-webkit-details-marker { display: none; }
+
+  .instructions summary::before {
+    content: '▸';
+    font-size: 0.8rem;
+    transition: transform 0.2s;
+    display: inline-block;
+  }
+
+  .instructions[open] summary::before { transform: rotate(90deg); }
+
+  .instructions ol {
+    margin-top: 12px;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .instructions li {
+    font-size: 0.84rem;
+    color: var(--text-sec);
+    line-height: 1.5;
+  }
+
+  .key-hint {
+    display: inline-block;
+    background: var(--bg);
+    border: 1px solid var(--surface-2);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.75rem;
+    font-family: 'Inter', monospace;
+    color: var(--text);
+    vertical-align: middle;
+  }
+
+  /* ── Footer ───────────────────────────────────────────────── */
+  footer {
+    text-align: center;
+    padding: 8px 0 0;
+    font-size: 0.75rem;
+    color: var(--text-sec);
+    opacity: 0.6;
+  }
+
+  /* ── Rating badges ────────────────────────────────────────── */
+  .rating-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 8px;
+    border-radius: 6px;
+    margin-top: 6px;
+    text-shadow: none;
+  }
+
+  .rating-incredible { background: rgba(16,185,129,0.2); color: var(--ready); }
+  .rating-fast       { background: rgba(59,130,246,0.2); color: var(--result); }
+  .rating-average    { background: rgba(245,158,11,0.2); color: var(--waiting); }
+  .rating-slow       { background: rgba(239,68,68,0.15); color: var(--error); }
+
+  /* ── Responsive ───────────────────────────────────────────── */
+  @media (max-width: 480px) {
+    .app { padding: 16px 14px 32px; gap: 14px; }
+    .stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .stat-card { padding: 10px 8px; }
+    .stat-value { font-size: 1.15rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>Reaction Timer</h1>
+    <p>Test your reflexes against the 3D stimulus</p>
+  </header>
+
+  <!-- 3D Scene -->
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="canvas-overlay state-idle" id="overlay">
+      <span class="overlay-label" id="overlayLabel">Click to Start</span>
+      <span class="overlay-sub" id="overlaySub">or press Space</span>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-primary" id="btnStart">Start</button>
+    <button class="btn btn-secondary" id="btnReset" disabled>Reset</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value" id="statAttempts">0</div>
+      <div class="stat-label">Attempts</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statAvg">—</div>
+      <div class="stat-label">Average</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statBest">—</div>
+      <div class="stat-label">Best</div>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="history-section">
+    <div class="history-header">
+      <span class="history-title">History</span>
+      <button class="history-clear" id="btnClearHistory">Clear</button>
+    </div>
+    <div class="history-list" id="historyList">
+      <div class="history-empty">No attempts yet</div>
+    </div>
+  </div>
+
+  <!-- Instructions -->
+  <details class="instructions">
+    <summary>How to Play</summary>
+    <ol>
+      <li>Press <span class="key-hint">Start</span> or click the 3D scene to begin.</li>
+      <li>Watch the floating shapes — they will turn <strong style="color:var(--waiting)">amber</strong> while waiting.</li>
+      <li>When they flash <strong style="color:var(--ready)">green</strong> and expand, click or press <span class="key-hint">Space</span> as fast as you can!</li>
+      <li>If you click before the green signal, it counts as a <strong style="color:var(--error)">false start</strong>.</li>
+      <li>Your reaction time is measured in milliseconds. Under 250ms is fast!</li>
+    </ol>
+  </details>
+
+  <footer>Built with Three.js &middot; Vanilla JS</footer>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Color Palette ──────────────────────────────────────────
+  const COLORS = {
+    bg:      0x0F172A,
+    surface: 0x1E293B,
+    idle:    0x475569,
+    waiting: 0xF59E0B,
+    ready:   0x10B981,
+    result:  0x3B82F6,
+    error:   0xEF4444,
+  };
+
+  // ── State ──────────────────────────────────────────────────
+  const State = Object.freeze({
+    IDLE:    'idle',
+    WAITING: 'waiting',
+    READY:   'ready',
+    RESULT:  'result',
+    FALSE:   'false',
+  });
+
+  let state = State.IDLE;
+  let delayTimer = null;
+  let startTime = 0;
+  let times = [];
+
+  // ── DOM refs ───────────────────────────────────────────────
+  const canvasWrap    = document.getElementById('canvasWrap');
+  const overlay       = document.getElementById('overlay');
+  const overlayLabel  = document.getElementById('overlayLabel');
+  const overlaySub    = document.getElementById('overlaySub');
+  const btnStart      = document.getElementById('btnStart');
+  const btnReset      = document.getElementById('btnReset');
+  const statAttempts  = document.getElementById('statAttempts');
+  const statAvg       = document.getElementById('statAvg');
+  const statBest      = document.getElementById('statBest');
+  const historyList   = document.getElementById('historyList');
+  const btnClearHist  = document.getElementById('btnClearHistory');
+
+  // ── Three.js Setup ─────────────────────────────────────────
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(COLORS.bg);
+  scene.fog = new THREE.FogExp2(COLORS.bg, 0.06);
+
+  const camera = new THREE.PerspectiveCamera(55, 16 / 10, 0.1, 100);
+  camera.position.set(0, 0, 6);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  canvasWrap.insertBefore(renderer.domElement, overlay);
+
+  function resizeRenderer() {
+    const w = canvasWrap.clientWidth;
+    const h = canvasWrap.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  resizeRenderer();
+  window.addEventListener('resize', resizeRenderer);
+
+  // ── Lights ─────────────────────────────────────────────────
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+  scene.add(ambientLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(3, 5, 4);
+  scene.add(dirLight);
+
+  const pointLight = new THREE.PointLight(0x3B82F6, 0.6, 20);
+  pointLight.position.set(-3, 2, 3);
+  scene.add(pointLight);
+
+  // ── Geometry Pool ──────────────────────────────────────────
+  const sharedMaterial = new THREE.MeshStandardMaterial({
+    color: COLORS.idle,
+    roughness: 0.35,
+    metalness: 0.6,
+  });
+
+  const geometries = [
+    new THREE.IcosahedronGeometry(0.65, 0),
+    new THREE.OctahedronGeometry(0.6, 0),
+    new THREE.TorusGeometry(0.45, 0.2, 16, 32),
+    new THREE.DodecahedronGeometry(0.55, 0),
+    new THREE.TetrahedronGeometry(0.6, 0),
+  ];
+
+  // Central main shape
+  const mainGeo = new THREE.IcosahedronGeometry(0.9, 1);
+  const mainMat = new THREE.MeshStandardMaterial({
+    color: COLORS.idle,
+    roughness: 0.25,
+    metalness: 0.7,
+    wireframe: false,
+  });
+  const mainMesh = new THREE.Mesh(mainGeo, mainMat);
+  scene.add(mainMesh);
+
+  // Orbiting shapes
+  const orbiters = [];
+  const ORBIT_COUNT = 5;
+
+  for (let i = 0; i < ORBIT_COUNT; i++) {
+    const geo = geometries[i % geometries.length];
+    const mat = sharedMaterial.clone();
+    const mesh = new THREE.Mesh(geo, mat);
+
+    const angle = (i / ORBIT_COUNT) * Math.PI * 2;
+    const radius = 2.2 + Math.random() * 0.5;
+    const yOffset = (Math.random() - 0.5) * 1.5;
+    const speed = 0.3 + Math.random() * 0.2;
+
+    orbiters.push({ mesh, angle, radius, yOffset, speed, baseScale: 0.5 + Math.random() * 0.2 });
+    scene.add(mesh);
+  }
+
+  // Particle field (background stars)
+  const particleCount = 120;
+  const particleGeo = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i++) {
+    positions[i * 3]     = (Math.random() - 0.5) * 20;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 12;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 10 - 3;
+  }
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const particleMat = new THREE.PointsMaterial({ color: 0x475569, size: 0.04, sizeAttenuation: true });
+  const particles = new THREE.Points(particleGeo, particleMat);
+  scene.add(particles);
+
+  // ── Target Colors & Scales ─────────────────────────────────
+  let targetColor = new THREE.Color(COLORS.idle);
+  let targetScale = 1.0;
+  let targetEmissive = new THREE.Color(0x000000);
+  let currentEmissiveIntensity = 0;
+  let targetEmissiveIntensity = 0;
+
+  function setSceneState(colorHex, scale, emissiveHex, emissiveIntensity) {
+    targetColor.set(colorHex);
+    targetScale = scale;
+    targetEmissive.set(emissiveHex || 0x000000);
+    targetEmissiveIntensity = emissiveIntensity || 0;
+  }
+
+  // ── Animation Loop ─────────────────────────────────────────
+  const clock = new THREE.Clock();
+  let pulsePhase = 0;
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+    const elapsed = clock.getElapsedTime();
+
+    // Main mesh rotation
+    mainMesh.rotation.x += dt * 0.4;
+    mainMesh.rotation.y += dt * 0.6;
+
+    // Smooth color lerp
+    mainMat.color.lerp(targetColor, dt * 5);
+    mainMat.emissive.lerp(targetEmissive, dt * 5);
+    currentEmissiveIntensity += (targetEmissiveIntensity - currentEmissiveIntensity) * dt * 5;
+    mainMat.emissiveIntensity = currentEmissiveIntensity;
+
+    // Smooth scale lerp
+    const pulseMod = state === State.READY
+      ? 1 + Math.sin(elapsed * 8) * 0.08
+      : state === State.WAITING
+        ? 1 + Math.sin(elapsed * 3) * 0.03
+        : 1;
+    const finalScale = targetScale * pulseMod;
+    mainMesh.scale.lerp(
+      new THREE.Vector3(finalScale, finalScale, finalScale),
+      dt * 6
+    );
+
+    // Orbiters
+    for (const orb of orbiters) {
+      orb.angle += dt * orb.speed;
+      orb.mesh.position.x = Math.cos(orb.angle) * orb.radius;
+      orb.mesh.position.z = Math.sin(orb.angle) * orb.radius;
+      orb.mesh.position.y = orb.yOffset + Math.sin(elapsed * 0.8 + orb.angle) * 0.3;
+      orb.mesh.rotation.x += dt * 0.8;
+      orb.mesh.rotation.y += dt * 1.1;
+
+      const orbScale = orb.baseScale * (state === State.READY ? 1.3 : 1);
+      orb.mesh.scale.lerp(
+        new THREE.Vector3(orbScale, orbScale, orbScale),
+        dt * 4
+      );
+      orb.mesh.material.color.lerp(targetColor, dt * 3);
+    }
+
+    // Particle drift
+    particles.rotation.y += dt * 0.02;
+
+    // Point light follows state color subtly
+    pointLight.color.lerp(targetColor, dt * 2);
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // ── State Machine ──────────────────────────────────────────
+  function setState(newState, data) {
+    state = newState;
+
+    // Clear any pending delay
+    if (delayTimer !== null) {
+      clearTimeout(delayTimer);
+      delayTimer = null;
+    }
+
+    // Remove previous state classes
+    overlay.className = 'canvas-overlay state-' + newState;
+
+    switch (newState) {
+      case State.IDLE:
+        overlayLabel.textContent = 'Click to Start';
+        overlaySub.textContent = 'or press Space';
+        overlaySub.style.display = '';
+        setSceneState(COLORS.idle, 1.0);
+        btnStart.textContent = 'Start';
+        btnStart.disabled = false;
+        break;
+
+      case State.WAITING:
+        overlayLabel.textContent = 'Wait for it…';
+        overlaySub.textContent = "don't click yet";
+        overlaySub.style.display = '';
+        setSceneState(COLORS.waiting, 0.85);
+        btnStart.textContent = 'Waiting…';
+        btnStart.disabled = true;
+
+        // Random delay 1–5 seconds
+        const delay = 1000 + Math.random() * 4000;
+        delayTimer = setTimeout(function () {
+          if (state === State.WAITING) {
+            setState(State.READY);
+          }
+        }, delay);
+        break;
+
+      case State.READY:
+        startTime = performance.now();
+        overlayLabel.textContent = 'CLICK NOW!';
+        overlaySub.textContent = '';
+        overlaySub.style.display = 'none';
+        setSceneState(COLORS.ready, 1.4, COLORS.ready, 0.4);
+        btnStart.textContent = 'Click!';
+        btnStart.disabled = true;
+        break;
+
+      case State.RESULT: {
+        const ms = data.ms;
+        overlayLabel.textContent = '';
+        overlaySub.style.display = '';
+
+        // Build result HTML
+        const rating = getRating(ms);
+        overlayLabel.innerHTML = '';
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'overlay-time';
+        timeSpan.innerHTML = ms + '<span class="overlay-time-unit">ms</span>';
+        overlay.querySelector('.canvas-overlay') || null;
+
+        // Replace label with time display
+        overlayLabel.style.display = 'none';
+        overlaySub.innerHTML = '';
+
+        // Insert time into overlay
+        let timeEl = overlay.querySelector('.overlay-time');
+        if (!timeEl) {
+          timeEl = document.createElement('div');
+          timeEl.className = 'overlay-time';
+          overlay.insertBefore(timeEl, overlayLabel);
+        }
+        timeEl.innerHTML = ms + '<span class="overlay-time-unit">ms</span>';
+        timeEl.style.display = '';
+
+        // Rating badge
+        let badgeEl = overlay.querySelector('.rating-badge');
+        if (!badgeEl) {
+          badgeEl = document.createElement('div');
+          badgeEl.className = 'rating-badge';
+          overlay.insertBefore(badgeEl, overlaySub);
+        }
+        badgeEl.textContent = rating.label;
+        badgeEl.className = 'rating-badge ' + rating.cls;
+        badgeEl.style.display = '';
+
+        overlaySub.textContent = 'Click or press Space to try again';
+        overlaySub.style.display = '';
+
+        setSceneState(COLORS.result, 1.1);
+        btnStart.textContent = 'Try Again';
+        btnStart.disabled = false;
+        btnReset.disabled = false;
+
+        // Record result
+        times.push(ms);
+        updateStats();
+        updateHistory();
+        break;
+      }
+
+      case State.FALSE:
+        overlayLabel.style.display = '';
+        overlayLabel.textContent = 'Too Early!';
+        overlaySub.textContent = 'Click or press Space to retry';
+        overlaySub.style.display = '';
+        setSceneState(COLORS.error, 0.7);
+        btnStart.textContent = 'Retry';
+        btnStart.disabled = false;
+
+        // Hide time/badge if visible
+        hideResultEls();
+        break;
+    }
+  }
+
+  function hideResultEls() {
+    const timeEl = overlay.querySelector('.overlay-time');
+    const badgeEl = overlay.querySelector('.rating-badge');
+    if (timeEl) timeEl.style.display = 'none';
+    if (badgeEl) badgeEl.style.display = 'none';
+    overlayLabel.style.display = '';
+  }
+
+  // ── Ratings ────────────────────────────────────────────────
+  function getRating(ms) {
+    if (ms < 200) return { label: 'Incredible', cls: 'rating-incredible' };
+    if (ms < 280) return { label: 'Fast', cls: 'rating-fast' };
+    if (ms < 400) return { label: 'Average', cls: 'rating-average' };
+    return { label: 'Keep Practicing', cls: 'rating-slow' };
+  }
+
+  // ── Stats ──────────────────────────────────────────────────
+  function updateStats() {
+    statAttempts.textContent = times.length;
+
+    if (times.length === 0) {
+      statAvg.textContent = '—';
+      statBest.textContent = '—';
+      return;
+    }
+
+    const avg = Math.round(times.reduce(function (a, b) { return a + b; }, 0) / times.length);
+    const best = Math.min.apply(null, times);
+
+    statAvg.textContent = avg + 'ms';
+    statBest.textContent = best + 'ms';
+  }
+
+  // ── History ────────────────────────────────────────────────
+  function updateHistory() {
+    if (times.length === 0) {
+      historyList.innerHTML = '<div class="history-empty">No attempts yet</div>';
+      return;
+    }
+
+    const best = Math.min.apply(null, times);
+    let html = '';
+
+    // Show most recent first
+    for (let i = times.length - 1; i >= 0; i--) {
+      const isBest = times[i] === best;
+      html += '<div class="history-item' + (isBest ? ' history-item-best' : '') + '">'
+            + '<span class="history-item-num">#' + (i + 1) + '</span>'
+            + '<span class="history-item-time">' + times[i] + 'ms' + (isBest ? ' ★' : '') + '</span>'
+            + '</div>';
+    }
+
+    historyList.innerHTML = html;
+  }
+
+  // ── Event Handlers ─────────────────────────────────────────
+  function handleAction() {
+    switch (state) {
+      case State.IDLE:
+      case State.FALSE:
+        hideResultEls();
+        setState(State.WAITING);
+        break;
+
+      case State.WAITING:
+        setState(State.FALSE);
+        break;
+
+      case State.READY: {
+        const elapsed = Math.round(performance.now() - startTime);
+        setState(State.RESULT, { ms: elapsed });
+        break;
+      }
+
+      case State.RESULT:
+        hideResultEls();
+        setState(State.WAITING);
+        break;
+    }
+  }
+
+  // Canvas click / tap
+  canvasWrap.addEventListener('pointerdown', function (e) {
+    e.preventDefault();
+    handleAction();
+  });
+
+  // Start button
+  btnStart.addEventListener('click', function (e) {
+    e.stopPropagation();
+    handleAction();
+  });
+
+  // Reset button
+  btnReset.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (delayTimer !== null) {
+      clearTimeout(delayTimer);
+      delayTimer = null;
+    }
+    times = [];
+    updateStats();
+    updateHistory();
+    hideResultEls();
+    setState(State.IDLE);
+    btnReset.disabled = true;
+  });
+
+  // Clear history
+  btnClearHist.addEventListener('click', function () {
+    times = [];
+    updateStats();
+    updateHistory();
+    if (state === State.RESULT || state === State.IDLE) {
+      btnReset.disabled = true;
+    }
+  });
+
+  // Keyboard support
+  document.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.key === ' ') {
+      e.preventDefault();
+      handleAction();
+    }
+  });
+
+  // Prevent context menu on canvas
+  canvasWrap.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  // ── Cleanup on page hide ───────────────────────────────────
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && state === State.WAITING) {
+      // Pause the game when tab is hidden to prevent unfair timing
+      if (delayTimer !== null) {
+        clearTimeout(delayTimer);
+        delayTimer = null;
+      }
+      hideResultEls();
+      setState(State.IDLE);
+    }
+  });
+
+  // Initialize
+  hideResultEls();
+
+})();
+</script>
+</body>
+</html>
